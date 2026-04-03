@@ -264,7 +264,10 @@ def main():
         if verbose:
             print(f"\nExecuting task: {args.task}\n")
         response = agent.run(args.task)
-        print(f"\nAgent: {response}\n")
+        try:
+            print(f"\nAgent: {response}\n")
+        except UnicodeEncodeError:
+            print(f"\nAgent: [response with special characters]\n")
     else:
         agent.run_interactive()
 

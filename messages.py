@@ -115,3 +115,20 @@ class MessageHistory:
     def get_recent(self, n: int = 10) -> List[Message]:
         """Get the n most recent messages."""
         return self.messages[-n:] if n > 0 else self.messages
+
+    def compact(self, compactor) -> list:
+        """
+        Compact the message history using the provided Compactor.
+        Returns the compacted messages list.
+        """
+        from compactor import Compactor as CompactorClass
+        if not isinstance(compactor, CompactorClass):
+            raise TypeError("compactor must be a Compactor instance")
+
+        # Get messages in dict format
+        messages_dict = self.get_messages_for_llm()
+
+        # Use compactor to decide if compaction is needed
+        if compactor.should_compact(messages_dict):
+            return compactor.compact(messages_dict)
+        return messages_dict

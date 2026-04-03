@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from messages import MessageHistory
 from provider import LLMProvider
 from tools import ToolRegistry
+from compactor import Compactor
 
 
 @dataclass
@@ -22,6 +23,9 @@ class AgentConfig:
     max_iterations: int = 20
     max_tool_calls_per_iteration: int = 5
     verbose: bool = True
+    # Compactor settings
+    compact_threshold: int = 10000  # Token threshold for compaction (default: 10,000)
+    preserve_recent: int = 4  # Preserve last N messages during compaction
 
 
 class Agent:
@@ -46,6 +50,13 @@ class Agent:
         self.tools = tools or ToolRegistry()
         self.config = config or AgentConfig()
         self.messages = MessageHistory()
+
+        # Initialize Compactor for automatic context compression
+        self.compactor = Compactor(
+            preserve_recent=self.config.preserve_recent,
+            max_tokens=self.config.compact_threshold
+        )
+        self._compaction_count = 0  # Track number of compactions
 
         # Add system prompt if provided
         if system_prompt:
@@ -86,9 +97,21 @@ class Agent:
             # Get tools for this call
             toolspec = self.tools.get_tools_for_llm()
 
+            # Get messages and check if compaction is needed
+            messages = self.messages.get_messages_for_llm()
+
+            # Automatic compaction before sending to LLM
+            if self.compactor.should_compact(messages):
+                self._compaction_count += 1
+                if self.config.verbose:
+                    print(f"[Compactor] Triggered! Compacting {len(messages)} messages...")
+                messages = self.compactor.compact(messages)
+                if self.config.verbose:
+                    print(f"[Compactor] Compacted to {len(messages)} messages (compaction #{self._compaction_count})")
+
             # Get completion from provider
             response = self.provider.complete(
-                messages=self.messages.get_messages_for_llm(),
+                messages=messages,
                 tools=toolspec if toolspec else None
             )
 
@@ -100,10 +123,18 @@ class Agent:
             self.messages.add_assistant(content or "", tool_call=tool_calls)
 
             if self.config.verbose:
-                if content:
-                    print(f"LLM: {content[:200]}{'...' if len(content) > 200 else ''}")
-                if tool_calls:
-                    print(f"LLM wants to call {len(tool_calls)} tool(s)")
+                try:
+                    if content:
+                        print(f"LLM: {content[:200]}{'...' if len(content) > 200 else ''}")
+                    if tool_calls:
+                        print(f"LLM wants to call {len(tool_calls)} tool(s)")
+                except UnicodeEncodeError:
+                    # Handle Windows console that can't encode emoji
+                    safe_content = content[:200] if content else ''
+                    try:
+                        print(f"LLM: {safe_content}")
+                    except UnicodeEncodeError:
+                        print(f"LLM: [content with special characters]")
 
             # If no tool calls or stop, we're done
             if not tool_calls or finish_reason == "stop":

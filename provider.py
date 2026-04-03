@@ -281,6 +281,69 @@ class MiniMaxProvider(LLMProvider):
         except Exception as e:
             raise Exception(f"MiniMax request failed: {str(e)}")
 
+    def summarize(self, text: str) -> str:
+        """
+        用 MiniMax 對文字做摘要
+
+        Args:
+            text: 要摘要的文字
+
+        Returns:
+            摘要後的文字
+        """
+        import urllib.request
+        import urllib.error
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # 使用 MiniMax-M2.7 模型做摘要
+        model_id = self.model
+
+        messages = [
+            {"role": "user", "content": text}
+        ]
+
+        payload = {
+            "model": model_id,
+            "messages": messages,
+        }
+
+        data = json.dumps(payload).encode("utf-8")
+
+        try:
+            req = urllib.request.Request(
+                f"{self.base_url}/chatcompletion_v2",
+                data=data,
+                headers=headers,
+                method="POST"
+            )
+
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode("utf-8"))
+
+            # 檢查錯誤
+            base_resp = result.get("base_resp", {})
+            if base_resp.get("status_code") and base_resp["status_code"] != 0:
+                error_msg = base_resp.get("status_msg", "unknown error")
+                raise Exception(f"MiniMax API error: {error_msg} (code: {base_resp['status_code']})")
+
+            choices = result.get("choices")
+            if not choices or len(choices) == 0:
+                raise Exception(f"MiniMax returned no choices: {result}")
+
+            choice = choices[0]
+            message = choice.get("message", {})
+            return message.get("content", "")
+
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8") if e.fp else ""
+            raise Exception(f"MiniMax API error {e.code}: {error_body}")
+        except Exception as e:
+            raise Exception(f"MiniMax summarize failed: {str(e)}")
+
 
 class TestProvider(LLMProvider):
     """
